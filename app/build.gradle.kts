@@ -1,3 +1,6 @@
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -11,12 +14,30 @@ android {
     namespace = "com.afex.explorer"
     compileSdk = 35
 
+    // Version auto-generated from build timestamp: Y.YMMD.Dhhm
+    // Each letter = one digit. Example 2026-03-10 23:37 → "2.6031.0233"
+    val buildTime: LocalDateTime = LocalDateTime.now()
+    val yy  = buildTime.format(DateTimeFormatter.ofPattern("yy"))   // "26"
+    val mon = buildTime.format(DateTimeFormatter.ofPattern("MM"))   // "03"
+    val dd  = buildTime.format(DateTimeFormatter.ofPattern("dd"))   // "10"
+    val hh  = buildTime.format(DateTimeFormatter.ofPattern("HH"))   // "23"
+    val min = buildTime.format(DateTimeFormatter.ofPattern("mm"))   // "37"
+    // Y  .  Y  M  M  D  .  D  h  h  m
+    // y1 . y2 M  M  d1 . d2 H  H  m1
+    val autoVersionName = "${yy[0]}.${yy[1]}${mon}${dd[0]}.${dd[1]}${hh}${min[0]}"
+    // versionCode: grows every 6 minutes, fits in Int through year 2999
+    val autoVersionCode = (yy.toLong() * 10_000_000L +
+                           mon.toLong() * 100_000L +
+                           dd.toLong()  * 1_000L +
+                           hh.toLong()  * 10L +
+                           min.toLong() / 6L).toInt()
+
     defaultConfig {
         applicationId = "com.afex.explorer"
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
-        versionName = "v2"
+        versionCode = autoVersionCode
+        versionName = autoVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
