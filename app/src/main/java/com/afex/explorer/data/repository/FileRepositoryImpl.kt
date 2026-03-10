@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import android.os.Build
+import android.os.Environment
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,13 +30,47 @@ class FileRepositoryImpl @Inject constructor(
         withContext(Dispatchers.IO) {
             runCatching {
                 when {
-                    !safFileAccess.isRestrictedPath(path) -> dataSource.listDirectory(path)
+                    !safFileAccess.isRestrictedPath(path) -> {
+                        val items = dataSource.listDirectory(path)
+                        // Android 11+ FUSE hides data/ and obb/ from File.listFiles() when
+                        // listing the Android/ parent — inject them manually if missing.
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            injectHiddenAndroidSubdirs(path, items)
+                        } else {
+                            items
+                        }
+                    }
                     shizukuFileAccess.hasPermission() -> shizukuFileAccess.listDirectory(path)
                     safFileAccess.hasUriPermission(path) -> safFileAccess.listDirectory(path)
                     else -> throw RestrictedAccessException(path)
                 }
             }
         }
+
+    /**
+     * On Android 11+, the FUSE overlay silently drops Android/data and Android/obb from
+     * File.listFiles() results on the Android/ parent directory. Inject them so the user
+     * can tap through to the restricted-access flow.
+     */
+    private fun injectHiddenAndroidSubdirs(path: String, items: List<FileItem>): List<FileItem> {
+        val androidDir = Environment.getExternalStorageDirectory().absolutePath + "/Android"
+        if (!path.trimEnd('/').equals(androidDir, ignoreCase = true)) return items
+        val existingNames = items.map { it.name.lowercase() }.toSet()
+        val injected = listOf("data", "obb").filter { it !in existingNames }.map { name ->
+            val dir = File(androidDir, name)
+            FileItem(
+                name = name,
+                path = dir.absolutePath,
+                isDirectory = true,
+                size = 0L,
+                lastModified = if (dir.lastModified() > 0) dir.lastModified() else System.currentTimeMillis(),
+                childCount = null
+            )
+        }
+        if (injected.isEmpty()) return items
+        return (items + injected)
+            .sortedWith(compareBy<FileItem> { !it.isDirectory }.thenBy { it.name.lowercase() })
+    }
 
     override fun copyFiles(sources: List<String>, destination: String): Flow<OperationProgress> =
         performOperation(sources, destination, deleteSource = false)
