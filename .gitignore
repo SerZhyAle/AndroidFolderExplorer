@@ -1,0 +1,27 @@
+*.iml
+.gradle/
+local.properties
+/.idea/
+.idea/
+.DS_Store
+/build/
+app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+/temp/
+temp/
+*.hprof
+
+# VS Code / Copilot
+.vscode/
+universal_copilot_instructions.md
+
+# Kotlin build artifacts
+.kotlin/
+*.kotlin_module
+
+# Keystore files — never commit real keystores
+*.jks
+*.keystore
+!**/.android/debug.keystore

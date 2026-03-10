@@ -1,0 +1,46 @@
+package com.afex.explorer.presentation.browser
+
+import com.afex.explorer.domain.model.FileItem
+import com.afex.explorer.domain.model.OperationProgress
+
+data class FileBrowserUiState(
+    val currentPath: String = DEFAULT_PATH,
+    val items: List<FileItem> = emptyList(),
+    val selectedPaths: Set<String> = emptySet(),
+    val isLoading: Boolean = true,
+    val error: String? = null,
+    val operation: OperationState? = null,
+    val pathSegments: List<PathSegment> = emptyList(),
+    val accessPrompt: AccessPromptState? = null
+) {
+    val hasSelection: Boolean get() = selectedPaths.isNotEmpty()
+    val allSelected: Boolean get() = items.isNotEmpty() && selectedPaths.size == items.size
+
+    companion object {
+        const val DEFAULT_PATH = "/storage/emulated/0/Android"
+    }
+}
+
+data class PathSegment(val name: String, val fullPath: String)
+
+sealed interface OperationState {
+    data class InProgress(val progress: OperationProgress) : OperationState
+    data class Completed(val message: String) : OperationState
+    data class Failed(val error: String) : OperationState
+}
+
+/**
+ * Represents what access permission the user needs to grant for a restricted path.
+ * The path is stored so it can be retried after the user grants access.
+ */
+sealed interface AccessPromptState {
+    val path: String
+    /** Android 11-13: grant SAF tree URI for Android/data or Android/obb */
+    data class SafRequired(override val path: String) : AccessPromptState
+    /** Android 14+: Shizuku service running, needs permission grant */
+    data class ShizukuPermissionRequired(override val path: String) : AccessPromptState
+    /** Android 14+: Shizuku APK installed but service is not running — user must start it */
+    data class ShizukuNotRunning(override val path: String) : AccessPromptState
+    /** Android 14+: Shizuku APK not installed — show install options */
+    data class ShizukuNotInstalled(override val path: String) : AccessPromptState
+}
