@@ -77,7 +77,6 @@ class FileRepositoryImpl @Inject constructor(
 
     override fun moveFiles(sources: List<String>, destination: String): Flow<OperationProgress> =
         performOperation(sources, destination, deleteSource = true)
-
     private fun performOperation(
         sources: List<String>,
         destination: String,
@@ -219,6 +218,27 @@ class FileRepositoryImpl @Inject constructor(
             onFileCopied(sourceName, target.length())
         }
     }
+}
+
+    override suspend fun deleteFiles(paths: List<String>): Result<Int> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                var deleted = 0
+                for (path in paths) {
+                    val isRestricted = safFileAccess.isRestrictedPath(path)
+                    val success = when {
+                        isRestricted && shizukuFileAccess.hasPermission() ->
+                            shizukuFileAccess.deleteRecursively(path)
+                        isRestricted ->
+                            safFileAccess.deleteDocument(path)
+                        else ->
+                            dataSource.deleteRecursively(File(path))
+                    }
+                    if (success) deleted++
+                }
+                deleted
+            }
+        }
 }
 
 class RestrictedAccessException(val path: String) :

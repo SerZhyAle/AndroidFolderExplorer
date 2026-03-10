@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Folder
@@ -132,7 +134,8 @@ fun FileBrowserScreen(
                 BottomActionBar(
                     selectedCount = state.selectedPaths.size,
                     onCopy = { viewModel.copyToDownloads() },
-                    onMove = { viewModel.moveToDownloads() }
+                    onMove = { viewModel.moveToDownloads() },
+                    onDelete = { viewModel.requestDelete() }
                 )
             }
         }
@@ -172,6 +175,33 @@ fun FileBrowserScreen(
                 }
             }
         }
+    }
+
+    // Delete confirmation dialog
+    if (state.pendingDelete) {
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelDelete() },
+            icon = {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Delete ${state.selectedPaths.size} item(s)?") },
+            text = { Text("This action is permanent and cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.confirmDelete() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelDelete() }) { Text("Cancel") }
+            }
+        )
     }
 
     // Operation dialog
@@ -285,14 +315,16 @@ private fun FileItemRow(
 private fun BottomActionBar(
     selectedCount: Int,
     onCopy: () -> Unit,
-    onMove: () -> Unit
+    onMove: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -317,6 +349,20 @@ private fun BottomActionBar(
                 )
                 Spacer(Modifier.width(6.dp))
                 Text("Move")
+            }
+            Button(
+                onClick = onDelete,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("Delete")
             }
         }
     }
@@ -512,7 +558,8 @@ private fun AccessPromptDialog(
                             shape = MaterialTheme.shapes.small
                         ) {
                             Text(
-                                text = "adb shell sh /sdcard/Android/data/\nmoe.shizuku.privileged.api/start.sh",
+                                text = "adb shell \$(pm path moe.shizuku.privileged.api |" +
+                                    " sed 's/package://;s/base.apk/lib/arm64/libshizuku.so/')",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontFamily = FontFamily.Monospace
                                 ),
@@ -569,7 +616,8 @@ private fun AccessPromptDialog(
                             shape = MaterialTheme.shapes.small
                         ) {
                             Text(
-                                text = "adb shell sh /sdcard/Android/data/\nmoe.shizuku.privileged.api/start.sh",
+                                text = "adb shell \$(pm path moe.shizuku.privileged.api |" +
+                                    " sed 's/package://;s/base.apk/lib/arm64/libshizuku.so/')",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     fontFamily = FontFamily.Monospace
                                 ),

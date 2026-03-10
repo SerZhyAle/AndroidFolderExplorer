@@ -11,7 +11,8 @@ data class FileBrowserUiState(
     val error: String? = null,
     val operation: OperationState? = null,
     val pathSegments: List<PathSegment> = emptyList(),
-    val accessPrompt: AccessPromptState? = null
+    val accessPrompt: AccessPromptState? = null,
+    val pendingDelete: Boolean = false
 ) {
     val hasSelection: Boolean get() = selectedPaths.isNotEmpty()
     val allSelected: Boolean get() = items.isNotEmpty() && selectedPaths.size == items.size

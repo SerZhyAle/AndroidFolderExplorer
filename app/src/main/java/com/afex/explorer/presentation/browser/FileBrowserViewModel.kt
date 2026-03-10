@@ -11,6 +11,7 @@ import com.afex.explorer.data.source.SafFileAccess
 import com.afex.explorer.data.source.ShizukuFileAccess
 import com.afex.explorer.domain.usecase.BrowseDirectoryUseCase
 import com.afex.explorer.domain.usecase.CopyFilesUseCase
+import com.afex.explorer.domain.usecase.DeleteFilesUseCase
 import com.afex.explorer.domain.usecase.MoveFilesUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -28,6 +29,7 @@ class FileBrowserViewModel @Inject constructor(
     private val browseDirectory: BrowseDirectoryUseCase,
     private val copyFiles: CopyFilesUseCase,
     private val moveFiles: MoveFilesUseCase,
+    private val deleteFiles: DeleteFilesUseCase,
     val safFileAccess: SafFileAccess,
     val shizukuFileAccess: ShizukuFileAccess
 ) : ViewModel() {
@@ -123,6 +125,35 @@ class FileBrowserViewModel @Inject constructor(
 
     fun copyToDownloads() = executeOperation(isMove = false)
     fun moveToDownloads() = executeOperation(isMove = true)
+
+    fun requestDelete() {
+        if (_uiState.value.selectedPaths.isEmpty()) return
+        _uiState.value = _uiState.value.copy(pendingDelete = true)
+    }
+
+    fun cancelDelete() {
+        _uiState.value = _uiState.value.copy(pendingDelete = false)
+    }
+
+    fun confirmDelete() {
+        val selected = _uiState.value.selectedPaths.toList()
+        _uiState.value = _uiState.value.copy(pendingDelete = false)
+        viewModelScope.launch {
+            deleteFiles(selected)
+                .onSuccess { count ->
+                    _uiState.value = _uiState.value.copy(
+                        operation = OperationState.Completed("Deleted $count item(s)"),
+                        selectedPaths = emptySet()
+                    )
+                    navigateTo(_uiState.value.currentPath)
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(
+                        operation = OperationState.Failed(e.message ?: "Delete failed")
+                    )
+                }
+        }
+    }
 
     fun cancelOperation() {
         operationJob?.cancel()
