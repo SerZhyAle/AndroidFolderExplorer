@@ -1,27 +1,72 @@
+# ============================================================
+# Android / Gradle
+# ============================================================
 *.iml
+*.ap_
+*.class
+
+# Gradle
 .gradle/
-local.properties
-/.idea/
-.idea/
-.DS_Store
 /build/
-app/build/
-/captures/
-.externalNativeBuild/
+build/
+local.properties
+
+# Generated sources / caches
 .cxx/
-/temp/
-temp/
-*.hprof
+.externalNativeBuild/
+/captures/
+kspCaches/
 
-# VS Code / Copilot
+# ============================================================
+# IDE — IntelliJ / Android Studio
+# ============================================================
+.idea/
+*.iws
+*.ipr
+out/
+
+# VS Code
 .vscode/
-universal_copilot_instructions.md
 
-# Kotlin build artifacts
+# ============================================================
+# Kotlin
+# ============================================================
 .kotlin/
 *.kotlin_module
 
-# Keystore files — never commit real keystores
+# ============================================================
+# Build outputs
+# ============================================================
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+
+# ============================================================
+# Security — never commit real signing keystores
+# ============================================================
 *.jks
 *.keystore
-!**/.android/debug.keystore
+
+# ============================================================
+# Dev / AI internal files
+# ============================================================
+universal_copilot_instructions.md
+dev/universal_copilot_instructions.md
+
+# ============================================================
+# Temp / profiling
+# ============================================================
+temp/
+/temp/
+*.hprof
+
+# ============================================================
+# OS artifacts
+# ============================================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
