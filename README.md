@@ -50,7 +50,7 @@ Android 11+ blocks direct `File` API access to `Android/data`. This app uses a t
 
 1. **Install the APK** — download from [Releases](../../releases).
 2. **Launch the app.**
-3. The app will show a dialog explaining why the permission is needed. Tap **Grant Access**.
+3. The app will show a dialog explaining why the permission is needed. Tap **Open Settings**.
 4. Android opens **Settings → Special app access → All files access**. Find **AndroidFolderExplorer** and toggle it **ON**.
 5. Return to the app (press Back or use the Recent Apps button).
 6. The app reloads the current directory automatically.
@@ -233,7 +233,7 @@ Data flow: `Screen → ViewModel → UseCase → Repository → DataSource`
 
 1. **Установите APK** — скачайте из раздела [Releases](../../releases).
 2. **Запустите приложение.**
-3. Приложение покажет диалог с объяснением, зачем нужно разрешение. Нажмите **Предоставить доступ**.
+3. Приложение покажет диалог с объяснением, зачем нужно разрешение. Нажмите **Открыть настройки**.
 4. Android откроет **Настройки → Приложения → Специальный доступ → Доступ ко всем файлам**. Найдите **AndroidFolderExplorer** и переключите в положение **ВКЛ**.
 5. Вернитесь в приложение (кнопка Назад или Последние приложения).
 6. Приложение автоматически перезагрузит текущую директорию.

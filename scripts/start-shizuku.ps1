@@ -12,11 +12,11 @@ $ErrorActionPreference = "Stop"
 $ShizukuPkg = "moe.shizuku.privileged.api"
 
 function Invoke-Adb {
-    param([string[]]$Args)
+    param([string[]]$AdbArgs)
     if ($script:DeviceSerial) {
-        & adb.exe -s $script:DeviceSerial @Args
+        & adb.exe -s $script:DeviceSerial @AdbArgs
     } else {
-        & adb.exe @Args
+        & adb.exe @AdbArgs
     }
 }
 
@@ -66,13 +66,14 @@ $script:DeviceSerial = $target.Serial
 Write-Host ("    Selected: [{0}] Android {1} (API {2})" -f $target.Serial, $target.OS, $target.Api) -ForegroundColor Green
 
 if ($target.Api -lt 34) {
-    Write-Host "    NOTE: Android $($target.OS) — Shizuku is optional. SAF access should work." -ForegroundColor Yellow
+    Write-Host "    NOTE: Android $($target.OS) — Shizuku is recommended for Samsung/custom ROMs that block File API." -ForegroundColor Yellow
 }
 
 # ── 4. Shizuku installed? ────────────────────────────────────────────────────
 Write-Host "`n[4] Checking Shizuku installation..." -ForegroundColor Cyan
-$installed = Invoke-Adb "shell","pm","list","packages",$ShizukuPkg 2>&1
-if ($installed -notmatch $ShizukuPkg) {
+# Use full package list and grep — pm list packages <name> is unreliable on Samsung
+$installed = (Invoke-Adb "shell","pm","list","packages" 2>&1) -join "`n"
+if ($installed -notmatch [regex]::Escape($ShizukuPkg)) {
     Write-Host "    Shizuku is NOT installed on this device." -ForegroundColor Red
     Write-Host ""
     Write-Host "    Install options:" -ForegroundColor Yellow

@@ -26,6 +26,16 @@ class FileRepositoryImpl @Inject constructor(
     private val shizukuFileAccess: ShizukuFileAccess
 ) : FileRepository {
 
+    /**
+     * True on API 30-33 when the user has granted MANAGE_EXTERNAL_STORAGE ("All files access").
+     * On these API levels, the File API gains full read/write access to Android/data.
+     * On API 34+ FUSE still blocks it even with the permission — Shizuku is required there.
+     */
+    private fun hasManageStorageAccess(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+            Environment.isExternalStorageManager()
+
     override suspend fun listDirectory(path: String): Result<List<FileItem>> =
         withContext(Dispatchers.IO) {
             runCatching {
@@ -38,6 +48,16 @@ class FileRepositoryImpl @Inject constructor(
                             injectHiddenAndroidSubdirs(path, items)
                         } else {
                             items
+                        }
+                    }
+                    // API 30-33: MANAGE_EXTERNAL_STORAGE grants File API access to Android/data
+                    // Some Samsung/custom ROMs still block it — catch and fall back to Shizuku or prompt
+                    hasManageStorageAccess() -> {
+                        try {
+                            dataSource.listDirectory(path)
+                        } catch (_: SecurityException) {
+                            if (shizukuFileAccess.hasPermission()) shizukuFileAccess.listDirectory(path)
+                            else throw RestrictedAccessException(path)
                         }
                     }
                     shizukuFileAccess.hasPermission() -> shizukuFileAccess.listDirectory(path)
@@ -89,6 +109,8 @@ class FileRepositoryImpl @Inject constructor(
             when {
                 !safFileAccess.isRestrictedPath(path) ->
                     dataSource.calculateTotalSize(listOf(File(path)))
+                hasManageStorageAccess() ->
+                    dataSource.calculateTotalSize(listOf(File(path)))
                 shizukuFileAccess.hasPermission() ->
                     shizukuFileAccess.calculateTotalSize(listOf(path))
                 else ->
@@ -98,6 +120,8 @@ class FileRepositoryImpl @Inject constructor(
         val totalFiles = sources.sumOf { path ->
             when {
                 !safFileAccess.isRestrictedPath(path) ->
+                    dataSource.countFiles(File(path))
+                hasManageStorageAccess() ->
                     dataSource.countFiles(File(path))
                 shizukuFileAccess.hasPermission() ->
                     shizukuFileAccess.countFiles(path)
@@ -113,7 +137,9 @@ class FileRepositoryImpl @Inject constructor(
         for (sourcePath in sources) {
             currentCoroutineContext().ensureActive()
             val isRestricted = safFileAccess.isRestrictedPath(sourcePath)
-            val useShizuku = isRestricted && shizukuFileAccess.hasPermission()
+            // On API 30-33 with MANAGE_EXTERNAL_STORAGE, treat restricted dirs as plain File paths
+            val useManageStorage = isRestricted && hasManageStorageAccess()
+            val useShizuku = isRestricted && !useManageStorage && shizukuFileAccess.hasPermission()
 
             if (useShizuku) {
                 // Shizuku: one-shot shell copy — emit start + complete only
@@ -125,7 +151,8 @@ class FileRepositoryImpl @Inject constructor(
                 }
                 emit(OperationProgress(totalFiles, totalFiles, File(sourcePath).name, totalBytes, totalBytes))
             } else {
-                copyRecursive(sourcePath, destDir, isRestricted) { fileName, fileSize ->
+                // useManageStorage → treat as unrestricted (File API), otherwise use SAF
+                copyRecursive(sourcePath, destDir, isRestricted = isRestricted && !useManageStorage) { fileName, fileSize ->
                     processedFiles++
                     processedBytes += fileSize
                     emit(
@@ -136,7 +163,7 @@ class FileRepositoryImpl @Inject constructor(
                 if (deleteSource) {
                     val destFile = File(destDir, File(sourcePath).name)
                     if (destFile.exists()) {
-                        if (isRestricted) {
+                        if (isRestricted && !useManageStorage) {
                             safFileAccess.deleteDocument(sourcePath)
                         } else {
                             dataSource.deleteRecursively(File(sourcePath))
@@ -218,7 +245,6 @@ class FileRepositoryImpl @Inject constructor(
             onFileCopied(sourceName, target.length())
         }
     }
-}
 
     override suspend fun deleteFiles(paths: List<String>): Result<Int> =
         withContext(Dispatchers.IO) {
@@ -229,6 +255,8 @@ class FileRepositoryImpl @Inject constructor(
                     val success = when {
                         isRestricted && shizukuFileAccess.hasPermission() ->
                             shizukuFileAccess.deleteRecursively(path)
+                        isRestricted && hasManageStorageAccess() ->
+                            dataSource.deleteRecursively(File(path))
                         isRestricted ->
                             safFileAccess.deleteDocument(path)
                         else ->

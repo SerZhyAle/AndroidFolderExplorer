@@ -36,7 +36,9 @@ sealed interface OperationState {
  */
 sealed interface AccessPromptState {
     val path: String
-    /** Android 11-13: grant SAF tree URI for Android/data or Android/obb */
+    /** Android 11-13: grant MANAGE_EXTERNAL_STORAGE ("All files access") in Settings */
+    data class ManageStorageRequired(override val path: String) : AccessPromptState
+    /** Legacy SAF fallback (not currently used as primary flow) */
     data class SafRequired(override val path: String) : AccessPromptState
     /** Android 14+: Shizuku service running, needs permission grant */
     data class ShizukuPermissionRequired(override val path: String) : AccessPromptState

@@ -93,7 +93,8 @@ fun FileBrowserScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         val prompt = state.accessPrompt
         if (prompt is AccessPromptState.ShizukuNotRunning ||
-            prompt is AccessPromptState.ShizukuPermissionRequired) {
+            prompt is AccessPromptState.ShizukuPermissionRequired ||
+            prompt is AccessPromptState.ManageStorageRequired) {
             viewModel.retryPendingPath()
         }
     }
@@ -213,12 +214,23 @@ fun FileBrowserScreen(
         )
     }
 
-    // Access permission dialog (SAF / Shizuku)
+    // Access permission dialog (SAF / Shizuku / Manage Storage)
     state.accessPrompt?.let { prompt ->
         AccessPromptDialog(
             state = prompt,
             onDismiss = { viewModel.dismissAccessPrompt() },
             onGrantSaf = { safLauncher.launch(viewModel.buildSafInitialUri(prompt.path)) },
+            onGrantManageStorage = {
+                val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    Intent(
+                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:${context.packageName}")
+                    )
+                } else {
+                    Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                }
+                context.startActivity(intent)
+            },
             onGrantShizuku = { viewModel.requestShizukuPermission() },
             onOpenShizukuApp = {
                 val intent = context.packageManager
@@ -459,6 +471,7 @@ private fun AccessPromptDialog(
     state: AccessPromptState,
     onDismiss: () -> Unit,
     onGrantSaf: () -> Unit,
+    onGrantManageStorage: () -> Unit,
     onGrantShizuku: () -> Unit,
     onOpenShizukuApp: () -> Unit,
     onOpenPlayStore: () -> Unit,
@@ -478,6 +491,7 @@ private fun AccessPromptDialog(
         title = {
             Text(
                 when (state) {
+                    is AccessPromptState.ManageStorageRequired -> "Grant All Files Access"
                     is AccessPromptState.SafRequired -> "Grant Folder Access"
                     is AccessPromptState.ShizukuPermissionRequired -> "Allow Shizuku Access"
                     is AccessPromptState.ShizukuNotRunning -> "Start Shizuku Service"
@@ -488,6 +502,18 @@ private fun AccessPromptDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 when (state) {
+                    is AccessPromptState.ManageStorageRequired -> {
+                        Text(
+                            "Android 11–13 requires \"All files access\" to browse Android/data and Android/obb.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            "Tap \"Open Settings\", enable All files access for this app, then return here.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     is AccessPromptState.SafRequired -> {
                         Text(
                             "This folder requires special access.\n\n" +
@@ -636,6 +662,8 @@ private fun AccessPromptDialog(
         },
         confirmButton = {
             when (state) {
+                is AccessPromptState.ManageStorageRequired ->
+                    Button(onClick = onGrantManageStorage) { Text("Open Settings") }
                 is AccessPromptState.SafRequired ->
                     Button(onClick = onGrantSaf) { Text("Grant Access") }
                 is AccessPromptState.ShizukuPermissionRequired ->
@@ -648,6 +676,8 @@ private fun AccessPromptDialog(
         },
         dismissButton = {
             when (state) {
+                is AccessPromptState.ManageStorageRequired ->
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
                 is AccessPromptState.ShizukuNotInstalled ->
                     // Fallback: SAF may partially work on some ROMs even on Android 14
                     TextButton(onClick = onGrantSaf) { Text("Try SAF (limited)") }

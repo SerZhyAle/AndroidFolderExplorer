@@ -196,8 +196,15 @@ class FileBrowserViewModel @Inject constructor(
                 shizukuFileAccess.isApkInstalled()   -> AccessPromptState.ShizukuNotRunning(path)
                 else                                  -> AccessPromptState.ShizukuNotInstalled(path)
             }
-            // Android 11-13 — SAF tree URI works for Android/data
-            else -> AccessPromptState.SafRequired(path)
+            // Android 11-13 with MANAGE_EXTERNAL_STORAGE already granted but File API still denied:
+            // device (e.g. Samsung Knox) blocks it despite the permission — fall back to Shizuku
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager() -> when {
+                shizukuFileAccess.isServiceRunning() -> AccessPromptState.ShizukuPermissionRequired(path)
+                shizukuFileAccess.isApkInstalled()   -> AccessPromptState.ShizukuNotRunning(path)
+                else                                  -> AccessPromptState.ShizukuNotInstalled(path)
+            }
+            // Android 11-13 without MANAGE_EXTERNAL_STORAGE — ask the user to grant it
+            else -> AccessPromptState.ManageStorageRequired(path)
         }
 
     private fun executeOperation(isMove: Boolean) {
