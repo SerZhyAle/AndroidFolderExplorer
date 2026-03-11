@@ -15,9 +15,12 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import android.os.Build
 import android.os.Environment
+import android.util.Log
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val TAG = "AFEX_MOVE"
 
 @Singleton
 class FileRepositoryImpl @Inject constructor(
@@ -50,17 +53,18 @@ class FileRepositoryImpl @Inject constructor(
                             items
                         }
                     }
+                    // Shizuku takes priority over MANAGE_EXTERNAL_STORAGE — Samsung Knox blocks
+                    // File API even when permission is granted; shell access is always reliable.
+                    shizukuFileAccess.hasPermission() -> shizukuFileAccess.listDirectory(path)
                     // API 30-33: MANAGE_EXTERNAL_STORAGE grants File API access to Android/data
-                    // Some Samsung/custom ROMs still block it — catch and fall back to Shizuku or prompt
+                    // Some Samsung/custom ROMs still block it — catch and fall back to error
                     hasManageStorageAccess() -> {
                         try {
                             dataSource.listDirectory(path)
                         } catch (_: SecurityException) {
-                            if (shizukuFileAccess.hasPermission()) shizukuFileAccess.listDirectory(path)
-                            else throw RestrictedAccessException(path)
+                            throw RestrictedAccessException(path)
                         }
                     }
-                    shizukuFileAccess.hasPermission() -> shizukuFileAccess.listDirectory(path)
                     safFileAccess.hasUriPermission(path) -> safFileAccess.listDirectory(path)
                     else -> throw RestrictedAccessException(path)
                 }
@@ -109,10 +113,10 @@ class FileRepositoryImpl @Inject constructor(
             when {
                 !safFileAccess.isRestrictedPath(path) ->
                     dataSource.calculateTotalSize(listOf(File(path)))
-                hasManageStorageAccess() ->
-                    dataSource.calculateTotalSize(listOf(File(path)))
                 shizukuFileAccess.hasPermission() ->
                     shizukuFileAccess.calculateTotalSize(listOf(path))
+                hasManageStorageAccess() ->
+                    dataSource.calculateTotalSize(listOf(File(path)))
                 else ->
                     safFileAccess.calculateTotalSize(listOf(path))
             }
@@ -121,10 +125,10 @@ class FileRepositoryImpl @Inject constructor(
             when {
                 !safFileAccess.isRestrictedPath(path) ->
                     dataSource.countFiles(File(path))
-                hasManageStorageAccess() ->
-                    dataSource.countFiles(File(path))
                 shizukuFileAccess.hasPermission() ->
                     shizukuFileAccess.countFiles(path)
+                hasManageStorageAccess() ->
+                    dataSource.countFiles(File(path))
                 else ->
                     safFileAccess.countFiles(path)
             }
@@ -134,27 +138,49 @@ class FileRepositoryImpl @Inject constructor(
 
         emit(OperationProgress(totalFiles, 0, "", totalBytes, 0L))
 
+        Log.d(TAG, "performOperation: deleteSource=$deleteSource dst=${destDir.absolutePath} totalFiles=$totalFiles totalBytes=$totalBytes sources=$sources")
+        // Capture once — Shizuku IPC (pingBinder + checkSelfPermission) is not stable
+        // under rapid repeated calls: successive invocations within the same coroutine can
+        // return different results, so we snapshot the value before the loop.
+        val hasShizukuPerm = shizukuFileAccess.hasPermission()
+        Log.d(TAG, "API=${Build.VERSION.SDK_INT} hasManageStorage=${hasManageStorageAccess()} shizukuHasPerm=$hasShizukuPerm shizukuRunning=${shizukuFileAccess.isServiceRunning()}")
+
         for (sourcePath in sources) {
             currentCoroutineContext().ensureActive()
             val isRestricted = safFileAccess.isRestrictedPath(sourcePath)
-            // On API 30-33 with MANAGE_EXTERNAL_STORAGE, treat restricted dirs as plain File paths
-            val useManageStorage = isRestricted && hasManageStorageAccess()
-            val useShizuku = isRestricted && !useManageStorage && shizukuFileAccess.hasPermission()
+            // Shizuku takes priority over MANAGE_EXTERNAL_STORAGE on restricted paths —
+            // Samsung Knox blocks File API even when permission is granted, making shell cp/mv
+            // the only reliable option. Only fall back to File API when Shizuku is unavailable.
+            val useShizuku = isRestricted && hasShizukuPerm
+            val useManageStorage = isRestricted && !useShizuku && hasManageStorageAccess()
+
+            Log.d(TAG, "source=$sourcePath isRestricted=$isRestricted useShizuku=$useShizuku useManageStorage=$useManageStorage")
 
             if (useShizuku) {
                 // Shizuku: one-shot shell copy — emit start + complete only
-                emit(OperationProgress(totalFiles, 0, File(sourcePath).name, totalBytes, 0L))
-                if (deleteSource) {
-                    shizukuFileAccess.moveInto(sourcePath, destDir.absolutePath)
-                } else {
-                    shizukuFileAccess.copyInto(sourcePath, destDir.absolutePath)
+                Log.d(TAG, "[Shizuku] ${if (deleteSource) "mv" else "cp"} $sourcePath -> ${destDir.absolutePath}")
+                emit(OperationProgress(totalFiles, processedFiles, File(sourcePath).name, totalBytes, processedBytes))
+                try {
+                    if (deleteSource) {
+                        shizukuFileAccess.moveInto(sourcePath, destDir.absolutePath)
+                    } else {
+                        shizukuFileAccess.copyInto(sourcePath, destDir.absolutePath)
+                    }
+                    Log.d(TAG, "[Shizuku] operation succeeded")
+                } catch (e: Exception) {
+                    Log.e(TAG, "[Shizuku] operation FAILED", e)
+                    throw e
                 }
-                emit(OperationProgress(totalFiles, totalFiles, File(sourcePath).name, totalBytes, totalBytes))
+                processedFiles++
+                emit(OperationProgress(totalFiles, processedFiles, File(sourcePath).name, totalBytes, processedBytes))
             } else {
                 // useManageStorage → treat as unrestricted (File API), otherwise use SAF
-                copyRecursive(sourcePath, destDir, isRestricted = isRestricted && !useManageStorage) { fileName, fileSize ->
+                val passRestricted = isRestricted && !useManageStorage
+                Log.d(TAG, "[FileAPI/SAF] copyRecursive passRestricted=$passRestricted")
+                copyRecursive(sourcePath, destDir, isRestricted = passRestricted) { fileName, fileSize ->
                     processedFiles++
                     processedBytes += fileSize
+                    Log.d(TAG, "  copied: $fileName size=$fileSize")
                     emit(
                         OperationProgress(totalFiles, processedFiles, fileName, totalBytes, processedBytes)
                     )
@@ -162,12 +188,18 @@ class FileRepositoryImpl @Inject constructor(
 
                 if (deleteSource) {
                     val destFile = File(destDir, File(sourcePath).name)
+                    Log.d(TAG, "[delete] destFile=${destFile.absolutePath} exists=${destFile.exists()}")
                     if (destFile.exists()) {
                         if (isRestricted && !useManageStorage) {
+                            Log.d(TAG, "[delete] via SAF: $sourcePath")
                             safFileAccess.deleteDocument(sourcePath)
                         } else {
-                            dataSource.deleteRecursively(File(sourcePath))
+                            Log.d(TAG, "[delete] via File API: $sourcePath")
+                            val deleteResult = dataSource.deleteRecursively(File(sourcePath))
+                            Log.d(TAG, "[delete] result=$deleteResult")
                         }
+                    } else {
+                        Log.w(TAG, "[delete] SKIPPED — dest file does not exist, copy may have failed silently")
                     }
                 }
             }
@@ -199,15 +231,29 @@ class FileRepositoryImpl @Inject constructor(
         onFileCopied: suspend (fileName: String, fileSize: Long) -> Unit
     ) {
         currentCoroutineContext().ensureActive()
+        Log.d(TAG, "copyRecursiveFile: src=${source.absolutePath} exists=${source.exists()} isDir=${source.isDirectory} canRead=${source.canRead()}")
         if (source.isDirectory) {
-            target.mkdirs()
+            val mkOk = target.mkdirs()
+            Log.d(TAG, "  mkdir ${target.absolutePath} ok=$mkOk")
             onFileCopied(source.name, 0L)
-            val children = source.listFiles() ?: return
+            val children = source.listFiles()
+            Log.d(TAG, "  listFiles=${children?.size ?: "null (BLOCKED)"}")
+            if (children == null) {
+                Log.e(TAG, "  listFiles() returned null — no read access despite permission? (Samsung Knox?)")
+                return
+            }
             for (child in children) {
                 copyRecursiveFile(child, File(target, child.name), onFileCopied)
             }
         } else {
-            dataSource.copyFile(source, target) { /* byte-level progress reserved */ }
+            Log.d(TAG, "  copyFile -> ${target.absolutePath} size=${source.length()}")
+            try {
+                dataSource.copyFile(source, target) { /* byte-level progress reserved */ }
+                Log.d(TAG, "  copyFile OK, destExists=${target.exists()} destSize=${target.length()}")
+            } catch (e: Exception) {
+                Log.e(TAG, "  copyFile FAILED", e)
+                throw e
+            }
             onFileCopied(source.name, source.length())
         }
     }
@@ -219,13 +265,16 @@ class FileRepositoryImpl @Inject constructor(
     ) {
         currentCoroutineContext().ensureActive()
         val sourceName = sourcePath.substringAfterLast('/')
+        Log.d(TAG, "copyRecursiveSaf: src=$sourcePath")
 
         // Check if directory by trying to list children
         val children = try {
             safFileAccess.listDirectory(sourcePath)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(TAG, "  safListDirectory failed", e)
             null
         }
+        Log.d(TAG, "  SAF children=${children?.size ?: "null"} for $sourceName")
 
         if (children != null && children.isNotEmpty()) {
             // Directory

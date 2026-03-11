@@ -1,9 +1,11 @@
 package com.afex.explorer.presentation.browser
 
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.afex.explorer.data.repository.RestrictedAccessException
@@ -14,6 +16,7 @@ import com.afex.explorer.domain.usecase.CopyFilesUseCase
 import com.afex.explorer.domain.usecase.DeleteFilesUseCase
 import com.afex.explorer.domain.usecase.MoveFilesUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +30,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class FileBrowserViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val browseDirectory: BrowseDirectoryUseCase,
     private val copyFiles: CopyFilesUseCase,
     private val moveFiles: MoveFilesUseCase,
@@ -37,6 +41,8 @@ class FileBrowserViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(FileBrowserUiState())
     val uiState: StateFlow<FileBrowserUiState> = _uiState.asStateFlow()
+
+    private val prefs = context.getSharedPreferences("afex_prefs", Context.MODE_PRIVATE)
 
     private var operationJob: Job? = null
 
@@ -57,7 +63,9 @@ class FileBrowserViewModel @Inject constructor(
 
     init {
         shizukuFileAccess.addPermissionListener(shizukuPermissionListener)
-        navigateTo(FileBrowserUiState.DEFAULT_PATH)
+        val lastPath = prefs.getString("last_path", FileBrowserUiState.DEFAULT_PATH)
+            ?: FileBrowserUiState.DEFAULT_PATH
+        navigateTo(lastPath)
     }
 
     override fun onCleared() {
@@ -76,6 +84,7 @@ class FileBrowserViewModel @Inject constructor(
             browseDirectory(path)
                 .onSuccess { items ->
                     pendingPath = null
+                    prefs.edit().putString("last_path", path).apply()
                     _uiState.value = _uiState.value.copy(
                         currentPath = path,
                         items = items,
@@ -209,19 +218,30 @@ class FileBrowserViewModel @Inject constructor(
         }
 
     private fun executeOperation(isMove: Boolean) {
+        if (operationJob?.isActive == true) {
+            Log.w("AFEX_MOVE", "executeOperation: operation already running, ignoring duplicate call")
+            return
+        }
         val selected = _uiState.value.selectedPaths.toList()
-        if (selected.isEmpty()) return
+        Log.d("AFEX_MOVE", "executeOperation isMove=$isMove selected=$selected")
+        if (selected.isEmpty()) {
+            Log.w("AFEX_MOVE", "executeOperation: selection is empty, aborting")
+            return
+        }
 
         operationJob = viewModelScope.launch {
+            Log.d("AFEX_MOVE", "coroutine started, collecting flow...")
             val flow = if (isMove) moveFiles(selected, downloadsPath)
                        else copyFiles(selected, downloadsPath)
 
             flow.catch { e ->
+                Log.e("AFEX_MOVE", "flow.catch error", e)
                 _uiState.value = _uiState.value.copy(
                     operation = OperationState.Failed(e.message ?: "Operation failed")
                 )
             }
             .onCompletion { error ->
+                Log.d("AFEX_MOVE", "onCompletion error=$error")
                 if (error == null) {
                     val action = if (isMove) "Moved" else "Copied"
                     _uiState.value = _uiState.value.copy(
@@ -231,6 +251,7 @@ class FileBrowserViewModel @Inject constructor(
                 }
             }
             .collect { progress ->
+                Log.d("AFEX_MOVE", "progress: ${progress.processedFiles}/${progress.totalFiles} ${progress.currentFileName}")
                 _uiState.value = _uiState.value.copy(operation = OperationState.InProgress(progress))
             }
 

@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,7 +26,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -62,6 +66,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -81,6 +88,7 @@ fun FileBrowserScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val listState = rememberLazyListState()
 
     // SAF tree picker — launched when AccessPromptState.SafRequired is shown
     val safLauncher = rememberLauncherForActivityResult(
@@ -161,17 +169,27 @@ fun FileBrowserScreen(
                     )
                 }
                 else -> {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(state.items, key = { it.path }) { item ->
-                            FileItemRow(
-                                item = item,
-                                isSelected = item.path in state.selectedPaths,
-                                onItemClick = {
-                                    if (item.isDirectory) viewModel.navigateTo(item.path)
-                                },
-                                onSelectionToggle = { viewModel.toggleSelection(item.path) }
-                            )
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                            items(state.items, key = { it.path }) { item ->
+                                FileItemRow(
+                                    item = item,
+                                    isSelected = item.path in state.selectedPaths,
+                                    onItemClick = {
+                                        if (item.isDirectory) viewModel.navigateTo(item.path)
+                                    },
+                                    onSelectionToggle = { viewModel.toggleSelection(item.path) }
+                                )
+                            }
                         }
+                        ScrollbarIndicator(
+                            state = listState,
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                                .width(6.dp)
+                                .padding(vertical = 4.dp)
+                        )
                     }
                 }
             }
@@ -254,6 +272,28 @@ fun FileBrowserScreen(
                     Uri.parse("https://shizuku.rikka.app/")))
             },
             onRetry = { viewModel.retryPendingPath() }
+        )
+    }
+}
+
+@Composable
+private fun ScrollbarIndicator(state: LazyListState, modifier: Modifier = Modifier) {
+    val totalItems = state.layoutInfo.totalItemsCount
+    val visibleCount = state.layoutInfo.visibleItemsInfo.size
+    if (totalItems == 0 || visibleCount == 0 || visibleCount >= totalItems) return
+    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+    val firstVisibleIndex = state.firstVisibleItemIndex
+    Canvas(modifier = modifier) {
+        val thumbHeight = (visibleCount.toFloat() / totalItems * size.height)
+            .coerceAtLeast(48.dp.toPx())
+        val availableTravel = size.height - thumbHeight
+        val maxFirst = totalItems - visibleCount
+        val fraction = if (maxFirst > 0) firstVisibleIndex.toFloat() / maxFirst else 0f
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(0f, fraction * availableTravel),
+            size = Size(size.width, thumbHeight),
+            cornerRadius = CornerRadius(size.width / 2)
         )
     }
 }

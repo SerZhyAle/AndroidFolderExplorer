@@ -2,11 +2,14 @@ package com.afex.explorer.data.source
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.util.Log
 import com.afex.explorer.domain.model.FileItem
 import dagger.hilt.android.qualifiers.ApplicationContext
 import rikka.shizuku.Shizuku
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val STAG = "AFEX_SHIZUKU"
 
 /**
  * File access via Shizuku privileged shell.
@@ -116,9 +119,17 @@ class ShizukuFileAccess @Inject constructor(
 
     @Suppress("DEPRECATION")
     private fun runShellWithExit(command: String): Int = try {
+        Log.d(STAG, "runShellWithExit: $command")
         val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
-        process.waitFor()
-    } catch (_: Exception) { -1 }
+        val stderr = process.errorStream.bufferedReader().readText()
+        val exit = process.waitFor()
+        if (stderr.isNotBlank()) Log.w(STAG, "stderr: $stderr")
+        Log.d(STAG, "exit=$exit")
+        exit
+    } catch (e: Exception) {
+        Log.e(STAG, "runShellWithExit exception", e)
+        -1
+    }
 
     // Single-quote a shell argument, escaping internal single quotes
     private fun q(path: String): String = "'${path.replace("'", "'\\''")}'"
