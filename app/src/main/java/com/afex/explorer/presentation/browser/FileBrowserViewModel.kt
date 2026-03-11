@@ -15,6 +15,7 @@ import com.afex.explorer.domain.usecase.DeleteFilesUseCase
 import com.afex.explorer.domain.usecase.MoveFilesUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -231,6 +232,20 @@ class FileBrowserViewModel @Inject constructor(
             }
             .collect { progress ->
                 _uiState.value = _uiState.value.copy(operation = OperationState.InProgress(progress))
+            }
+
+            // After Move: refresh directory so moved items disappear from the list
+            if (isMove && _uiState.value.operation is OperationState.Completed) {
+                delay(1200)
+                val currentPath = _uiState.value.currentPath
+                _uiState.value = _uiState.value.copy(isLoading = true, operation = null)
+                browseDirectory(currentPath)
+                    .onSuccess { items ->
+                        _uiState.value = _uiState.value.copy(items = items, isLoading = false)
+                    }
+                    .onFailure {
+                        _uiState.value = _uiState.value.copy(isLoading = false)
+                    }
             }
         }
     }
