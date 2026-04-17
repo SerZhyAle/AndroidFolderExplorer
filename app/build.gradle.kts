@@ -11,7 +11,7 @@ plugins {
 }
 
 android {
-    namespace = "com.afex.explorer"
+    namespace = "com.sza.androidfolderexplorer"
     compileSdk = 35
 
     // Version auto-generated from build timestamp: Y.YMMD.Dhhm
@@ -33,7 +33,7 @@ android {
                            min.toLong() / 6L).toInt()
 
     defaultConfig {
-        applicationId = "com.afex.explorer"
+        applicationId = "com.sza.androidfolderexplorer"
         minSdk = 28
         targetSdk = 35
         versionCode = autoVersionCode
@@ -44,10 +44,10 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            storeFile = file("${rootProject.rootDir}/keys/release.keystore")
+            storePassword = "SerZhyA25"
+            keyAlias = "AndroidFolderExplorer"
+            keyPassword = "SerZhyA25"
         }
     }
 
